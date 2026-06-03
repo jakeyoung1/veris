@@ -1,5 +1,7 @@
 # veris
 
+[![npm version](https://img.shields.io/npm/v/veris-mcp.svg)](https://www.npmjs.com/package/veris-mcp) [![license](https://img.shields.io/npm/l/veris-mcp.svg)](./LICENSE) · `npx -y veris-mcp`
+
 **Provenance-first web access for AI agents.** Clean content *plus* verifiable source metadata, in one call.
 
 Today an AI agent reading the web gets a wall of text. It does **not** get: when the page was published, whether the content changed since last time, who wrote it, the canonical source, or the license terms. veris attaches all of that to every read.
@@ -58,9 +60,14 @@ The Stage 3 seams already exist in the code (`policy.ts`, `cache.ts`) so growth 
 ## Install
 
 ```bash
-cd "mcp-servers/veris"
-npm install
-npm run build
+npx -y veris-mcp        # zero-install, always latest
+```
+
+Or from source:
+
+```bash
+git clone https://github.com/jakeyoung1/veris && cd veris
+npm install && npm run build
 ```
 
 Optional env:
@@ -81,8 +88,8 @@ Add to your MCP config (`.mcp.json`):
 {
   "mcpServers": {
     "veris": {
-      "command": "node",
-      "args": ["mcp-servers/veris/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "veris-mcp"],
       "env": { "BRAVE_API_KEY": "optional", "SEC_USER_AGENT": "Your Name you@email.com" }
     }
   }
