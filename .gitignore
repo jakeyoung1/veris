@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.log
+.veris/
+.DS_Store
+.env
+.claude-flow/
