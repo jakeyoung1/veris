@@ -24,19 +24,36 @@ veris is the **agent-side** of that layer — the SDK every agent imports to con
 
 | Stage | What | Status |
 |-------|------|--------|
-| **1. Clean + provenance** | Search, read, research with verifiable source metadata | ✅ this repo |
-| **2. Policy** | robots.txt + RSL parsing, license-aware fetching | 🚧 seam in `policy.ts` |
-| **3. Settlement** | Micropayment + attribution handshake; cache becomes the ledger | 🔜 seam in `cache.ts` |
+| **1. Clean + provenance** | search / read / research with verifiable source metadata | ✅ |
+| **2. Finance vertical** | SEC EDGAR filings with authoritative, official provenance | ✅ |
+| **3. Settlement** | license-aware access + micropayment + attribution | 🔜 seams in `policy.ts` + `cache.ts` |
 
-The Stage 2/3 seams already exist in the code so growth is additive, not a rewrite.
+The Stage 3 seams already exist in the code (`policy.ts`, `cache.ts`) so growth is additive, not a rewrite.
 
 ## Tools
+
+**Web**
 
 | Tool | Does |
 |------|------|
 | `web_search(query, n?)` | Ranked results as structured JSON. Brave (with key) or keyless DuckDuckGo. |
 | `web_read(url, fresh?)` | URL → clean markdown + provenance block. 24h cache. |
 | `web_research(query, n?)` | Search + read top N + bundle with per-source citations. |
+
+**Finance — SEC EDGAR** (free, official, no API key)
+
+| Tool | Does |
+|------|------|
+| `finance_filings(query, formType?, limit?)` | Ticker / name / CIK → recent SEC filings: form, official filing & report dates, accession, direct document URL. |
+| `finance_filing_read(url or query, formType?)` | Read a filing by URL, or auto-read the latest matching form for a company. Clean text + provenance. |
+
+> **Why EDGAR first?** Filings carry *authoritative* dates and identifiers straight from the SEC — provenance isn't guessed, it's official. Free, structured, no auth. One call gets an agent the latest 10-K with a verifiable source:
+>
+> ```
+> finance_filing_read({ query: "NVDA", formType: "10-K" })
+>   → NVIDIA CORP — 10-K (filed 2026-02-25)
+>     clean text + { source, filed date, contentHash, wordCount }
+> ```
 
 ## Install
 
@@ -46,13 +63,15 @@ npm install
 npm run build
 ```
 
-Optional — better search quality with a free Brave key (2k queries/mo):
+Optional env:
 
 ```bash
-export BRAVE_API_KEY=your_key   # from https://search.brave.com/app/keys
+export BRAVE_API_KEY=your_key                      # better search; https://search.brave.com/app/keys
+export SEC_USER_AGENT="Your Name you@email.com"    # SEC fair-access policy (recommended)
 ```
 
-Without a key it falls back to keyless DuckDuckGo automatically.
+Without a Brave key, search falls back to keyless DuckDuckGo automatically. SEC requires a
+`Name email@domain` style User-Agent — veris ships a default, but set your own contact.
 
 ## Use in Claude Code
 
@@ -64,7 +83,7 @@ Add to your MCP config (`.mcp.json`):
     "veris": {
       "command": "node",
       "args": ["mcp-servers/veris/dist/index.js"],
-      "env": { "BRAVE_API_KEY": "optional_key_here" }
+      "env": { "BRAVE_API_KEY": "optional", "SEC_USER_AGENT": "Your Name you@email.com" }
     }
   }
 }
