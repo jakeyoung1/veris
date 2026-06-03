@@ -7,6 +7,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { getSearchProvider } from "./search.js";
 import { readUrl } from "./read.js";
+import { getFilings } from "./edgar.js";
 import { FileCacheStore } from "./cache.js";
 import type { ReadResult, SearchResponse } from "./types.js";
 
@@ -136,6 +137,92 @@ server.registerTool(
     });
 
     return { content: [{ type: "text", text: sections.join("\n\n---\n\n") }] };
+  },
+);
+
+// --- finance_filings (SEC EDGAR) ------------------------------------------
+server.registerTool(
+  "finance_filings",
+  {
+    title: "SEC Filings (EDGAR)",
+    description:
+      "List a company's recent SEC filings from EDGAR by ticker, name, or CIK. Free, official, " +
+      "no API key. Returns form type, filing/report dates, accession number, and direct document " +
+      "URL — provenance is authoritative (straight from SEC).",
+    inputSchema: {
+      query: z.string().describe("Ticker (e.g. NVDA), company name, or CIK"),
+      formType: z.string().optional().describe('Filter by form, e.g. "10-K", "10-Q", "8-K"'),
+      limit: z.number().int().min(1).max(50).optional().describe("Max filings (default 10)"),
+    },
+  },
+  async ({ query, formType, limit }) => {
+    const result = await getFilings(query, { formType, limit }, cache);
+    const c = result.company;
+    const lines: string[] = [
+      `Company: ${c.name}${c.ticker ? ` (${c.ticker})` : ""} — CIK ${c.cik}` +
+        (c.sicDescription ? ` — ${c.sicDescription}` : ""),
+      `Source: ${result.source} (fetched ${result.fetchedAt})`,
+      `${formType ? `Recent ${formType} filings` : "Recent filings"} (${result.filings.length}):`,
+      "",
+    ];
+    result.filings.forEach((f, i) => {
+      lines.push(
+        `[${i + 1}] ${f.form} | filed ${f.filingDate}` +
+          (f.reportDate ? ` | report ${f.reportDate}` : "") +
+          ` | ${f.accession}\n    ${f.docUrl}`,
+      );
+    });
+    lines.push("", "```json", JSON.stringify(result, null, 2), "```");
+    return { content: [{ type: "text", text: lines.join("\n") }] };
+  },
+);
+
+// --- finance_filing_read --------------------------------------------------
+server.registerTool(
+  "finance_filing_read",
+  {
+    title: "Read SEC Filing",
+    description:
+      "Fetch and clean a specific SEC filing. Pass a filing document URL, OR a company query " +
+      "plus formType to auto-read the most recent matching filing (e.g. latest 10-K for NVDA). " +
+      "Returns clean text plus provenance.",
+    inputSchema: {
+      url: z.string().url().optional().describe("EDGAR filing document URL"),
+      query: z.string().optional().describe("Ticker/name/CIK (used when url is omitted)"),
+      formType: z.string().optional().describe('Form to auto-pick with query, e.g. "10-K"'),
+    },
+  },
+  async ({ url, query, formType }) => {
+    let docUrl = url;
+    let header = "";
+    let filed: string | null = null; // authoritative EDGAR filing date
+    if (!docUrl) {
+      if (!query) throw new Error("Provide either url, or query (+ optional formType).");
+      const res = await getFilings(query, { formType, limit: 1 }, cache);
+      const f = res.filings[0];
+      if (!f) throw new Error(`No ${formType ?? ""} filing found for "${query}".`);
+      docUrl = f.docUrl;
+      filed = f.filingDate;
+      header = `## ${res.company.name} — ${f.form} (filed ${f.filingDate})\n`;
+    }
+    const cacheKey = `read:${docUrl}`;
+    let read = await cache.get<ReadResult>(cacheKey);
+    if (!read) {
+      read = await readUrl(docUrl);
+      await cache.set(cacheKey, read, READ_TTL);
+    }
+    const MAX = 12000;
+    const body =
+      read.content.length > MAX
+        ? read.content.slice(0, MAX) + "\n…[truncated — full content cached]"
+        : read.content;
+    const text =
+      (header || `## ${read.provenance.title ?? docUrl}\n`) +
+      `Source: ${docUrl}\n` +
+      `Filed: ${filed ?? read.provenance.publishedAt ?? "see filing"} | ` +
+      `Hash: ${read.provenance.contentHash.slice(0, 12)} | Words: ${read.provenance.wordCount}\n\n` +
+      body;
+    return { content: [{ type: "text", text }] };
   },
 );
 
