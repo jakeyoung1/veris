@@ -137,3 +137,128 @@ export async function getFilings(
     fetchedAt: new Date().toISOString(),
   };
 }
+
+// --- Structured financials (XBRL companyconcept) --------------------------
+// Each reported value carries its own provenance: the filing it came from
+// (accession + filed date + fiscal period), straight from SEC.
+
+export interface FactValue {
+  label: string;
+  concept: string;
+  value: number;
+  unit: string;
+  periodEnd: string;
+  fiscalYear: number | null;
+  fiscalPeriod: string | null;
+  form: string;
+  filed: string; // provenance: filing date
+  accession: string; // provenance
+}
+
+// Only trust primary financial statements for these figures — not proxies
+// (DEF 14A), current reports (8-K), or press exhibits, which can restate.
+const FINANCIAL_FORMS = /^(10-K|10-Q|20-F|40-F)(\/A)?$/i;
+
+const FINANCIAL_CONCEPTS: { label: string; candidates: string[] }[] = [
+  {
+    label: "Revenue",
+    candidates: [
+      "RevenueFromContractWithCustomerExcludingAssessedTax",
+      "Revenues",
+      "SalesRevenueNet",
+    ],
+  },
+  { label: "Net income", candidates: ["NetIncomeLoss"] },
+  { label: "Total assets", candidates: ["Assets"] },
+  { label: "Cash & equivalents", candidates: ["CashAndCashEquivalentsAtCarryingValue"] },
+  { label: "EPS (diluted)", candidates: ["EarningsPerShareDiluted"] },
+];
+
+async function fetchConcept(
+  cik10: string,
+  concept: string,
+  cache: CacheStore,
+): Promise<any | null> {
+  const url = `https://data.sec.gov/api/xbrl/companyconcept/CIK${cik10}/us-gaap/${concept}.json`;
+  try {
+    return await secFetchJson<any>(url, cache, HOUR);
+  } catch {
+    return null; // concept simply not reported by this company
+  }
+}
+
+function durationDays(x: any): number | null {
+  if (!x.start || !x.end) return null;
+  return (Date.parse(x.end) - Date.parse(x.start)) / 86_400_000;
+}
+
+// Newest valid row by period end, tie-broken by filed date.
+function pickLatest(series: any[]): any | null {
+  return (
+    series
+      .filter((x) => x && x.val != null && x.end && x.form)
+      .sort((a, b) =>
+        a.end < b.end ? 1 : a.end > b.end ? -1 : a.filed < b.filed ? 1 : -1,
+      )[0] ?? null
+  );
+}
+
+export async function getFinancials(
+  query: string,
+  cache: CacheStore,
+): Promise<{ company: Company; facts: FactValue[] }> {
+  const company = await resolveCompany(query, cache);
+  if (!company) throw new Error(`No SEC company found for "${query}"`);
+
+  const facts: FactValue[] = [];
+  for (const c of FINANCIAL_CONCEPTS) {
+    // Evaluate every candidate concept; keep the one with the NEWEST period
+    // (so we never lock onto a deprecated tag that only holds old data).
+    let best: { row: any; unit: string; concept: string } | null = null;
+    for (const concept of c.candidates) {
+      const data = await fetchConcept(company.cik, concept, cache);
+      const units = data?.units;
+      if (!units) continue;
+      const unitKey = Object.keys(units)[0];
+      const series: any[] = (units[unitKey] ?? []).filter(
+        (x: any) => x && x.val != null && x.end && FINANCIAL_FORMS.test(x.form || ""),
+      );
+      const isFlow = series.some((x) => x.start); // income/revenue vs balance-sheet
+
+      let pool: any[];
+      if (!isFlow) {
+        pool = series.filter((x) => !x.start); // instant (assets, cash)
+      } else {
+        const inRange = (lo: number, hi: number) =>
+          series.filter((x) => {
+            const d = durationDays(x);
+            return d != null && d >= lo && d <= hi;
+          });
+        const annual = inRange(350, 380);
+        pool = annual.length ? annual : inRange(80, 100); // annual, else quarterly
+      }
+
+      const row = pickLatest(pool);
+      if (row && (!best || row.end > best.row.end)) {
+        best = { row, unit: unitKey, concept };
+      }
+    }
+
+    if (best) {
+      const r = best.row;
+      facts.push({
+        label: c.label,
+        concept: best.concept,
+        value: r.val,
+        unit: best.unit,
+        periodEnd: r.end,
+        fiscalYear: r.fy ?? null,
+        fiscalPeriod: r.fp ?? null,
+        form: r.form,
+        filed: r.filed,
+        accession: r.accn,
+      });
+    }
+  }
+  return { company, facts };
+}

@@ -7,7 +7,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { getSearchProvider } from "./search.js";
 import { readUrl } from "./read.js";
-import { getFilings } from "./edgar.js";
+import { getFilings, getFinancials } from "./edgar.js";
 import { FileCacheStore } from "./cache.js";
 import type { ReadResult, SearchResponse } from "./types.js";
 
@@ -223,6 +223,50 @@ server.registerTool(
       `Hash: ${read.provenance.contentHash.slice(0, 12)} | Words: ${read.provenance.wordCount}\n\n` +
       body;
     return { content: [{ type: "text", text }] };
+  },
+);
+
+// --- finance_financials (SEC XBRL) ----------------------------------------
+server.registerTool(
+  "finance_financials",
+  {
+    title: "Company Financials (SEC XBRL)",
+    description:
+      "Key structured financials (revenue, net income, total assets, cash, diluted EPS) from SEC " +
+      "XBRL data. Each figure is stamped with the exact filing it came from (form, filed date, " +
+      "accession, fiscal period) — authoritative provenance. Ticker / name / CIK. No API key.",
+    inputSchema: {
+      query: z.string().describe("Ticker (e.g. NVDA), company name, or CIK"),
+    },
+  },
+  async ({ query }) => {
+    const { company, facts } = await getFinancials(query, cache);
+    const money = (v: number, unit: string): string => {
+      if (unit === "USD") {
+        const a = Math.abs(v);
+        if (a >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
+        if (a >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
+        return `$${Math.round(v).toLocaleString()}`;
+      }
+      if (unit.includes("shares")) return `$${v.toFixed(2)}`;
+      return String(v);
+    };
+    const lines: string[] = [
+      `Financials: ${company.name}${company.ticker ? ` (${company.ticker})` : ""} — CIK ${company.cik}`,
+      "",
+    ];
+    if (!facts.length) {
+      lines.push("_No us-gaap XBRL facts found for this company._");
+    }
+    facts.forEach((f) => {
+      lines.push(
+        `- **${f.label}**: ${money(f.value, f.unit)}  ` +
+          `(${f.fiscalPeriod ?? "?"} ${f.fiscalYear ?? ""}, period end ${f.periodEnd})  ` +
+          `— ${f.form} filed ${f.filed}, accession ${f.accession}`,
+      );
+    });
+    lines.push("", "```json", JSON.stringify({ company, facts }, null, 2), "```");
+    return { content: [{ type: "text", text: lines.join("\n") }] };
   },
 );
 
