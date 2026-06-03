@@ -1,0 +1,35 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.jakeyoung1/veris",
+  "description": "Provenance-first web + SEC EDGAR data for AI agents: every fact carries its verifiable source.",
+  "repository": {
+    "url": "https://github.com/jakeyoung1/veris",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "veris-mcp",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "BRAVE_API_KEY",
+          "description": "Optional Brave Search API key; falls back to keyless DuckDuckGo if unset.",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "SEC_USER_AGENT",
+          "description": "SEC fair-access User-Agent ('Name email@domain') for EDGAR; a default ships.",
+          "isRequired": false,
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}

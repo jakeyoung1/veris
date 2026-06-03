@@ -15,7 +15,7 @@ const cache = new FileCacheStore();
 const READ_TTL = 24 * 60 * 60 * 1000; // 24h
 const SEARCH_TTL = 60 * 60 * 1000; // 1h
 
-const server = new McpServer({ name: "veris", version: "0.1.0" });
+const server = new McpServer({ name: "veris", version: "0.1.1" });
 
 // --- web_search -----------------------------------------------------------
 server.registerTool(

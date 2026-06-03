@@ -1,6 +1,7 @@
 {
   "name": "veris-mcp",
-  "version": "0.1.0",
+  "version": "0.1.1",
+  "mcpName": "io.github.jakeyoung1/veris",
   "description": "Provenance-first web access for AI agents. Clean content plus verifiable source metadata in one call.",
   "type": "module",
   "main": "dist/index.js",
