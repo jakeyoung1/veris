@@ -14,7 +14,8 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
@@ -26,6 +27,15 @@
     "model-context-protocol"
   ],
   "license": "MIT",
+  "author": "Jake Young",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jakeyoung1/veris.git"
+  },
+  "homepage": "https://github.com/jakeyoung1/veris#readme",
+  "bugs": {
+    "url": "https://github.com/jakeyoung1/veris/issues"
+  },
   "engines": {
     "node": ">=20"
   },
