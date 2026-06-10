@@ -48,6 +48,7 @@ The Stage 3 seams already exist in the code (`policy.ts`, `cache.ts`) so growth 
 |------|------|
 | `finance_filings(query, formType?, limit?)` | Ticker / name / CIK → recent SEC filings: form, official filing & report dates, accession, direct document URL. |
 | `finance_filing_read(url or query, formType?)` | Read a filing by URL, or auto-read the latest matching form for a company. Clean text + provenance. |
+| `finance_financials(query)` | Revenue, net income, total assets, cash, diluted EPS from SEC XBRL — each figure stamped with the exact filing it came from. |
 
 > **Why EDGAR first?** Filings carry *authoritative* dates and identifiers straight from the SEC — provenance isn't guessed, it's official. Free, structured, no auth. One call gets an agent the latest 10-K with a verifiable source:
 >
@@ -56,6 +57,13 @@ The Stage 3 seams already exist in the code (`policy.ts`, `cache.ts`) so growth 
 >   → NVIDIA CORP — 10-K (filed 2026-02-25)
 >     clean text + { source, filed date, contentHash, wordCount }
 > ```
+
+**Watch — change detection & alerts**
+
+| Tool | Does |
+|------|------|
+| `watch_manage(action, target?, formType?)` | Add/remove/list watches: a company's SEC filings (ticker + optional form like `8-K`) or any URL (content-hash watch). |
+| `watch_check()` | Check all watches; returns only what's NEW (new filings / changed pages) and rolls baselines forward. Run it on a schedule → alert feed. |
 
 ## Install
 
@@ -97,6 +105,33 @@ Add to your MCP config (`.mcp.json`):
 ```
 
 Restart Claude Code, then ask it to `web_research` something.
+
+## Remote server (HTTP)
+
+Run veris as a remote MCP server (Streamable HTTP) and connect from any MCP client by URL:
+
+```bash
+npx -y veris-mcp http                            # http://127.0.0.1:8787/mcp
+VERIS_HTTP_HOST=0.0.0.0 npx -y veris-mcp http    # expose it (put TLS in front)
+```
+
+| Env | Does |
+|-----|------|
+| `VERIS_PORT` / `PORT` | Port (default `8787`) |
+| `VERIS_HTTP_HOST` | Bind host (default `127.0.0.1`) |
+| `VERIS_API_KEYS` | Comma-separated keys. If set, `/mcp` requires `Authorization: Bearer <key>` (or `x-api-key`). Unset = open. |
+| `VERIS_RATE_LIMIT` | Requests/min/IP (default `60`) |
+
+Self-hosting is free, forever. `VERIS_API_KEYS` exists so a hosted instance can be metered.
+
+### Docker
+
+```bash
+docker build -t veris .
+docker run -p 8787:8787 veris
+```
+
+Works as-is on Fly.io / Render / Railway — anything that runs a Dockerfile.
 
 ## Design notes
 

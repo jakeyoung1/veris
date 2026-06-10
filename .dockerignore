@@ -1,0 +1,7 @@
+node_modules
+dist
+.git
+.veris
+mcp-publisher
+*.log
+.DS_Store
