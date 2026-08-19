@@ -8,6 +8,7 @@ import { readUrl } from "./read.js";
 import { getFilings, getFinancials } from "./edgar.js";
 import { FileCacheStore } from "./cache.js";
 import { addWatch, removeWatch, listWatches, checkWatches } from "./watch.js";
+import { passesFilter, formLabel } from "./materiality.js";
 import type { ReadResult, SearchResponse } from "./types.js";
 
 export const VERSION = "0.2.0";
@@ -282,11 +283,19 @@ export function buildServer(): McpServer {
       description:
         "Add, remove, or list watches. Watch a company's SEC filings (target = ticker/name/CIK, " +
         "optional formType like 8-K) or any URL (target = https://…, watched by content hash). " +
-        "Adding baselines current state; use watch_check later to see only what's new.",
+        "Adding baselines current state; use watch_check later to see only what's new. " +
+        "By default only MATERIAL forms alert (8-K, 10-K/Q, 13D/G, mergers, offerings, late filings) — " +
+        'routine Form 4 / 13F noise is suppressed. Pass formType="ALL" to alert on every form.',
       inputSchema: {
         action: z.enum(["add", "remove", "list"]).describe("What to do"),
         target: z.string().optional().describe("Ticker/name/CIK, URL, or watch id (for remove)"),
-        formType: z.string().optional().describe('Optional form filter for filings watches, e.g. "8-K"'),
+        formType: z
+          .string()
+          .optional()
+          .describe(
+            'Form filter for filings watches. Omit for the material-forms default, ' +
+              '"ALL" for every form, or a specific form like "8-K".',
+          ),
       },
     },
     async ({ action, target, formType }) => {
@@ -315,22 +324,37 @@ export function buildServer(): McpServer {
       title: "Check Watches (alerts)",
       description:
         "Check every watch for changes since the last check: new SEC filings, changed page content. " +
-        "Returns only what's new and rolls baselines forward. Run it on a schedule (cron / scheduled " +
+        "Returns only what's new and rolls baselines forward. Routine forms (Form 4, 13F, etc.) are " +
+        "suppressed unless the watch asked for them. Run it on a schedule (cron / scheduled " +
         "agent) to turn veris into an alert feed. Note: the SEC filing index may lag up to ~1h (cache).",
       inputSchema: {},
     },
     async () => {
       const report = await checkWatches(cache);
+      let suppressed = 0;
+      for (const r of report.results) {
+        if (r.status === "new_filings" && r.watch.type === "filings") {
+          const before = r.newFilings!.length;
+          r.newFilings = r.newFilings!.filter((f) =>
+            passesFilter(f.form, r.watch.type === "filings" ? r.watch.formType : null),
+          );
+          suppressed += before - r.newFilings.length;
+          if (!r.newFilings.length) r.status = "unchanged";
+        }
+      }
       const changed = report.results.filter((r) => r.status !== "unchanged" && r.status !== "error");
       const lines = [
-        `Checked ${report.results.length} watch(es) at ${report.checkedAt} — ${changed.length} with changes`,
+        `Checked ${report.results.length} watch(es) at ${report.checkedAt} — ${changed.length} with changes` +
+          (suppressed ? ` (${suppressed} routine filing(s) suppressed)` : ""),
       ];
       for (const r of report.results) {
         if (r.status === "new_filings") {
           const company = r.watch.type === "filings" ? r.watch.company : r.watch.target;
           lines.push(`\n🔔 ${company} — ${r.newFilings!.length} new filing(s):`);
           r.newFilings!.forEach((f) =>
-            lines.push(`  • ${f.form} filed ${f.filingDate} | ${f.accession}\n    ${f.docUrl}`),
+            lines.push(
+              `  • ${f.form} (${formLabel(f.form)}) filed ${f.filingDate} | ${f.accession}\n    ${f.docUrl}`,
+            ),
           );
         } else if (r.status === "changed") {
           lines.push(`\n🔔 ${r.watch.target} changed — ${r.detail}`);

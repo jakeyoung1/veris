@@ -65,6 +65,44 @@ The Stage 3 seams already exist in the code (`policy.ts`, `cache.ts`) so growth 
 | `watch_manage(action, target?, formType?)` | Add/remove/list watches: a company's SEC filings (ticker + optional form like `8-K`) or any URL (content-hash watch). |
 | `watch_check()` | Check all watches; returns only what's NEW (new filings / changed pages) and rolls baselines forward. Run it on a schedule → alert feed. |
 
+Filings watches default to **material forms only** — `8-K`, `10-K`, `10-Q`, `20-F`, `SC 13D/G`,
+merger proxies, offerings, late-filing notices. Routine `Form 4` / `13F-HR` traffic is suppressed,
+because an alert feed nobody reads is worse than none. Pass `formType: "ALL"` to see everything,
+or a specific form to watch just that one.
+
+## Alerts by email (`veris-mcp digest`)
+
+`watch_check` returns JSON to an MCP client. `digest` turns the same data into an email a
+human actually reads: it checks every watch, reads each new material filing, summarizes what
+changed, and delivers it.
+
+```bash
+veris-mcp digest --dry-run          # print the digest, send nothing
+veris-mcp digest                    # check, summarize, email
+veris-mcp digest --to a@co.com      # override recipients
+veris-mcp mailtest                  # verify SMTP without sending
+```
+
+Every summary carries verbatim quotes from the filing, and each quote is checked against the
+source text before sending — quotes that can't be matched are flagged in the email rather than
+presented as fact. Filings longer than the character budget are marked as partially read; they
+are never silently truncated.
+
+| Env | Does |
+|-----|------|
+| `ANTHROPIC_API_KEY` | Enables filing summaries. Without it, digests still send as raw filing notices. |
+| `VERIS_SUMMARY_MODEL` | Model for summaries (default `claude-opus-5`). |
+| `VERIS_SUMMARY_CHAR_BUDGET` | Chars of filing text summarized (default 250,000). |
+| `VERIS_SMTP_URL` | e.g. `smtps://user:pass@smtp.gmail.com:465` |
+| `VERIS_MAIL_FROM` | e.g. `"Veris Alerts <alerts@yourdomain>"` |
+| `VERIS_MAIL_TO` | Comma-separated default recipients. |
+
+Run it on a schedule for a live alert feed:
+
+```bash
+*/15 * * * * ANTHROPIC_API_KEY=... VERIS_SMTP_URL=... veris-mcp digest
+```
+
 ## Install
 
 ```bash
