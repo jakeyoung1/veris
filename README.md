@@ -1,6 +1,6 @@
 # veris
 
-[![npm version](https://img.shields.io/npm/v/veris-mcp.svg)](https://www.npmjs.com/package/veris-mcp) [![license](https://img.shields.io/npm/l/veris-mcp.svg)](./LICENSE) · `npx -y veris-mcp`
+[![CI](https://github.com/jakeyoung1/veris/actions/workflows/ci.yml/badge.svg)](https://github.com/jakeyoung1/veris/actions/workflows/ci.yml) [![npm version](https://img.shields.io/npm/v/veris-mcp.svg)](https://www.npmjs.com/package/veris-mcp) [![license](https://img.shields.io/npm/l/veris-mcp.svg)](./LICENSE) · `npx -y veris-mcp`
 
 **Provenance-first web access for AI agents.** Clean content *plus* verifiable source metadata, in one call.
 
