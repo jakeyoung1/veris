@@ -33,7 +33,7 @@ veris is the **agent-side** of that layer — the SDK every agent imports to con
 
 ### Stage 3: what v0.3.0 does
 
-Every content read (`web_read`, `web_research`, `finance_filing_read`) passes a policy gate first:
+Every content read passes a policy gate first: `web_read`, `web_research`, `finance_filing_read`, URL watches (`watch_manage` refuses to add a URL it may not read; `watch_check` reports it as `withheld` and keeps the old baseline), and filing reads in `veris-mcp digest`. EDGAR index lookups use the SEC JSON API and are not page reads.
 
 1. **robots.txt.** Fetched per origin and matched for the `VerisBot` token (falls back to `*`), per RFC 9309: longest match wins, `*` and `$` wildcards, missing file = allow, 5xx = disallow. A disallowed URL returns `status: "blocked"` with the exact rule (e.g. `Disallow: /cgi-bin`) and the page is never requested.
 2. **RSL licenses.** Discovered from robots.txt `License:` lines, `<link rel="license" type="application/rsl+xml">`, or inline `<script type="application/rsl+xml">`. The gate picks the `<content>` scope covering the URL and the license that permits `ai-input` use.

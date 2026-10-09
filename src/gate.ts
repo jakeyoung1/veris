@@ -1,5 +1,5 @@
 // Policy gate: every content read goes through here (web_read, web_research,
-// finance_filing_read). Kept apart from tools.ts so tool signatures and the
+// finance_filing_read, watch_manage, watch_check, digest). Kept apart from tools.ts so tool signatures and the
 // gate can evolve independently.
 
 import { readUrl } from "./read.js";
@@ -103,7 +103,9 @@ async function paymentRequired(
   };
 }
 
-export function createGate(cache: CacheStore, readTtlMs: number) {
+export const READ_TTL_MS = 24 * 60 * 60 * 1000;
+
+export function createGate(cache: CacheStore, readTtlMs = READ_TTL_MS) {
   return async function gatedRead(
     url: string,
     tool: string,
@@ -166,6 +168,15 @@ export function createGate(cache: CacheStore, readTtlMs: number) {
     });
     return { status: "ok", result, fromCache };
   };
+}
+
+// One-line reason for a withheld read, for lists (research sources, watches, digests).
+export function describeWithheld(o: Exclude<GateOutcome, { status: "ok" }>): string {
+  if (o.status === "blocked") return o.reason;
+  return (
+    `payment required${o.priceHint ? ` (${o.priceHint})` : ""}; ` +
+    `terms: ${o.terms ?? o.rslUrl}`
+  );
 }
 
 export function renderWithheld(o: Exclude<GateOutcome, { status: "ok" }>): string {

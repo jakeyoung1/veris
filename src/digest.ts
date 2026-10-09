@@ -8,7 +8,7 @@
 
 import { checkWatches } from "./watch.js";
 import { FileCacheStore } from "./cache.js";
-import { readUrl } from "./read.js";
+import { createGate, describeWithheld } from "./gate.js";
 import { passesFilter, formLabel } from "./materiality.js";
 import {
   summarizeFiling,
@@ -50,6 +50,7 @@ const RANK = { high: 0, medium: 1, low: 2 } as const;
 export async function buildDigest(): Promise<DigestResult> {
   const cache = new FileCacheStore();
   const report = await checkWatches(cache);
+  const gate = createGate(cache);
 
   const alerts: Alert[] = [];
   const urlAlerts: UrlAlert[] = [];
@@ -59,6 +60,10 @@ export async function buildDigest(): Promise<DigestResult> {
   for (const r of report.results) {
     if (r.status === "error") {
       errors.push(`${r.watch.target}: ${r.detail}`);
+      continue;
+    }
+    if (r.status === "withheld") {
+      errors.push(`${r.watch.target}: not read, ${r.detail}`);
       continue;
     }
 
@@ -85,8 +90,12 @@ export async function buildDigest(): Promise<DigestResult> {
 
       if (summariesEnabled()) {
         try {
-          const doc = await readUrl(filing.docUrl);
-          summary = await summarizeFiling(filing, company, doc.content);
+          const o = await gate(filing.docUrl, "digest");
+          if (o.status === "ok") {
+            summary = await summarizeFiling(filing, company, o.result.content);
+          } else {
+            summaryError = `filing not read: ${describeWithheld(o)}`;
+          }
         } catch (e) {
           summaryError = e instanceof Error ? e.message : String(e);
         }

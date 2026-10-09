@@ -6,12 +6,12 @@ import { z } from "zod";
 import { getSearchProvider } from "./search.js";
 import { getFilings, getFinancials } from "./edgar.js";
 import { FileCacheStore } from "./cache.js";
-import { createGate, renderWithheld } from "./gate.js";
+import { createGate, describeWithheld, renderWithheld } from "./gate.js";
 import { addWatch, removeWatch, listWatches, checkWatches } from "./watch.js";
 import { passesFilter, formLabel } from "./materiality.js";
 import type { SearchResponse } from "./types.js";
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.3.1";
 
 const cache = new FileCacheStore();
 const READ_TTL = 24 * 60 * 60 * 1000; // 24h
@@ -119,10 +119,7 @@ export function buildServer(): McpServer {
         }
         const o = settled.value;
         if (o.status !== "ok") {
-          const why =
-            o.status === "blocked"
-              ? o.reason
-              : `Payment required${o.priceHint ? ` (${o.priceHint})` : ""}; terms: ${o.terms ?? o.rslUrl}`;
+          const why = describeWithheld(o);
           sections.push(`## [${i + 1}] ${src.title}\nSource: ${src.url}\n_${why}. Content withheld._`);
           return;
         }
@@ -338,7 +335,9 @@ export function buildServer(): McpServer {
           if (!r.newFilings.length) r.status = "unchanged";
         }
       }
-      const changed = report.results.filter((r) => r.status !== "unchanged" && r.status !== "error");
+      const changed = report.results.filter(
+        (r) => r.status === "new_filings" || r.status === "changed",
+      );
       const lines = [
         `Checked ${report.results.length} watch(es) at ${report.checkedAt} — ${changed.length} with changes` +
           (suppressed ? ` (${suppressed} routine filing(s) suppressed)` : ""),
@@ -354,6 +353,8 @@ export function buildServer(): McpServer {
           );
         } else if (r.status === "changed") {
           lines.push(`\n🔔 ${r.watch.target} changed — ${r.detail}`);
+        } else if (r.status === "withheld") {
+          lines.push(`\n⛔ ${r.watch.target}: not read, ${r.detail}`);
         } else if (r.status === "error") {
           lines.push(`\n⚠️ ${r.watch.target}: ${r.detail}`);
         }

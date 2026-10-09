@@ -12,7 +12,7 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getFilings, type FilingRef } from "./edgar.js";
-import { readUrl } from "./read.js";
+import { createGate, describeWithheld } from "./gate.js";
 import type { CacheStore } from "./cache.js";
 
 export interface WatchBase {
@@ -61,7 +61,10 @@ export async function addWatch(
   const ws = await load();
   let watch: Watch;
   if (/^https?:\/\//i.test(target)) {
-    const r = await readUrl(target);
+    // Gated like every other read. A watch we may not read is refused up front.
+    const o = await createGate(cache)(target, "watch_manage", { fresh: true });
+    if (o.status !== "ok") throw new Error(`Cannot watch ${target}: ${describeWithheld(o)}`);
+    const r = o.result;
     watch = {
       id: `url-${slug(target)}`,
       type: "url",
@@ -110,7 +113,8 @@ export async function listWatches(): Promise<Watch[]> {
 
 export interface CheckResult {
   watch: Watch;
-  status: "new_filings" | "changed" | "unchanged" | "error";
+  // withheld = policy gate refused the read (robots / paid license); baseline kept.
+  status: "new_filings" | "changed" | "unchanged" | "withheld" | "error";
   newFilings?: FilingRef[];
   detail?: string;
 }
@@ -120,6 +124,7 @@ export async function checkWatches(
 ): Promise<{ checkedAt: string; results: CheckResult[] }> {
   const ws = await load();
   const results: CheckResult[] = [];
+  const gate = createGate(cache);
   for (const w of ws) {
     try {
       if (w.type === "filings") {
@@ -141,7 +146,14 @@ export async function checkWatches(
           results.push({ watch: w, status: "unchanged" });
         }
       } else {
-        const r = await readUrl(w.target); // direct fetch — never the read cache
+        // fresh: always refetch, never compare against the read cache
+        const o = await gate(w.target, "watch_check", { fresh: true });
+        if (o.status !== "ok") {
+          results.push({ watch: w, status: "withheld", detail: describeWithheld(o) });
+          w.lastCheckedAt = new Date().toISOString();
+          continue;
+        }
+        const r = o.result;
         if (r.provenance.contentHash !== w.contentHash) {
           const detail =
             `content hash ${w.contentHash.slice(0, 12)} → ${r.provenance.contentHash.slice(0, 12)}` +
