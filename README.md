@@ -28,9 +28,20 @@ veris is the **agent-side** of that layer — the SDK every agent imports to con
 |-------|------|--------|
 | **1. Clean + provenance** | search / read / research with verifiable source metadata | ✅ |
 | **2. Finance vertical** | SEC EDGAR filings with authoritative, official provenance | ✅ |
-| **3. Settlement** | license-aware access + micropayment + attribution | 🔜 seams in `policy.ts` + `cache.ts` |
+| **3. Settlement** | license-aware access + attribution ledger + payment intents | ✅ v0.3.0 (payments stubbed, no money moves) |
+| **3b. Live payments** | plug a provider (RSL license server / x402 / Stripe) into `settlement.ts` | 🔜 |
 
-The Stage 3 seams already exist in the code (`policy.ts`, `cache.ts`) so growth is additive, not a rewrite.
+### Stage 3: what v0.3.0 does
+
+Every content read (`web_read`, `web_research`, `finance_filing_read`) passes a policy gate first:
+
+1. **robots.txt.** Fetched per origin and matched for the `VerisBot` token (falls back to `*`), per RFC 9309: longest match wins, `*` and `$` wildcards, missing file = allow, 5xx = disallow. A disallowed URL returns `status: "blocked"` with the exact rule (e.g. `Disallow: /cgi-bin`) and the page is never requested.
+2. **RSL licenses.** Discovered from robots.txt `License:` lines, `<link rel="license" type="application/rsl+xml">`, or inline `<script type="application/rsl+xml">`. The gate picks the `<content>` scope covering the URL and the license that permits `ai-input` use.
+3. **Price.** If the license charges (`purchase`, `subscription`, `crawl`, `use`), the tool returns `status: "payment_required"` with the terms, price, and the RSL document URL instead of content. When the license is declared in robots.txt, the page is not fetched at all. `priceHint` is filled only from a declared `<amount>`, copied verbatim. A paid license with no amount reports `price: null`; veris never estimates one.
+4. **Ledger.** Every read, block, and payment requirement is appended to `~/.veris/ledger.jsonl` (override `VERIS_LEDGER_FILE`) with URL, content hash, timestamp, tool, and the full license record. Entries are hash-chained, so edits or deletions are detectable: `veris-mcp ledger --verify`. List with `veris-mcp ledger [--kind read|blocked|payment_required|payment_intent] [--url U] [--since ISO] [--limit N]`.
+5. **Settlement stub.** A paid license also records a `payment_intent` entry (declared price, terms, license server). The default provider is `none`: status `recorded`, nothing charged, content withheld. A real provider implements `PaymentProvider.authorize()` in `src/settlement.ts` and registers with `setPaymentProvider()`.
+
+Every license field names its source (`robotsUrl` + `robotsRule`, `rslUrl`, `price.source`), so any verdict can be re-fetched and checked. Tool input schemas are unchanged from v0.2.
 
 ## Tools
 
@@ -176,7 +187,7 @@ Works as-is on Fly.io / Render / Railway — anything that runs a Dockerfile.
 - **Provenance from raw HTML.** We fetch the page ourselves and pull dates/author/canonical from `<meta>`, JSON-LD, and Open Graph *before* readability strips them.
 - **Content hash.** sha256 of extracted text — detects whether a page changed and enables dedupe across agents (the basis for a shared web index).
 - **Provider interface.** Swap search backends without touching tool code.
-- **Cache → ledger.** The same keyed store that caches reads today records read events for settlement tomorrow.
+- **Cache + ledger.** `cache.ts` keeps the keyed read cache and the append-only, hash-chained attribution ledger side by side.
 
 ## License
 

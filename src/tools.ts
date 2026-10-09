@@ -4,18 +4,20 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getSearchProvider } from "./search.js";
-import { readUrl } from "./read.js";
 import { getFilings, getFinancials } from "./edgar.js";
 import { FileCacheStore } from "./cache.js";
+import { createGate, renderWithheld } from "./gate.js";
 import { addWatch, removeWatch, listWatches, checkWatches } from "./watch.js";
 import { passesFilter, formLabel } from "./materiality.js";
-import type { ReadResult, SearchResponse } from "./types.js";
+import type { SearchResponse } from "./types.js";
 
-export const VERSION = "0.2.0";
+export const VERSION = "0.3.0";
 
 const cache = new FileCacheStore();
 const READ_TTL = 24 * 60 * 60 * 1000; // 24h
 const SEARCH_TTL = 60 * 60 * 1000; // 1h
+
+const gatedRead = createGate(cache, READ_TTL);
 
 const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
 
@@ -69,14 +71,9 @@ export function buildServer(): McpServer {
       },
     },
     async ({ url, fresh }) => {
-      const cacheKey = `read:${url}`;
-      let result = fresh ? null : await cache.get<ReadResult>(cacheKey);
-      let fromCache = result !== null;
-      if (!result) {
-        result = await readUrl(url);
-        await cache.set(cacheKey, result, READ_TTL);
-        fromCache = false;
-      }
+      const gate = await gatedRead(url, "web_read", { fresh });
+      if (gate.status !== "ok") return text(renderWithheld(gate));
+      const { result, fromCache } = gate;
       return text(
         `## ${result.provenance.title ?? url}\n\n` +
           result.content +
@@ -106,14 +103,7 @@ export function buildServer(): McpServer {
       const results = await provider.search(query, count);
 
       const reads = await Promise.allSettled(
-        results.map(async (r) => {
-          const key = `read:${r.url}`;
-          const cached = await cache.get<ReadResult>(key);
-          if (cached) return cached;
-          const fresh = await readUrl(r.url);
-          await cache.set(key, fresh, READ_TTL);
-          return fresh;
-        }),
+        results.map((r) => gatedRead(r.url, "web_research")),
       );
 
       const sections: string[] = [
@@ -121,24 +111,33 @@ export function buildServer(): McpServer {
       ];
       reads.forEach((settled, i) => {
         const src = results[i];
-        if (settled.status === "fulfilled") {
-          const { content, provenance } = settled.value;
-          const excerpt =
-            content.length > 4000 ? content.slice(0, 4000) + "\n…[truncated]" : content;
-          sections.push(
-            `## [${i + 1}] ${provenance.title ?? src.title}\n` +
-              `Source: ${provenance.url}\n` +
-              `Published: ${provenance.publishedAt ?? "unknown"} | ` +
-              `Author: ${provenance.author ?? "unknown"} | ` +
-              `Fetched: ${provenance.fetchedAt} | ` +
-              `Hash: ${provenance.contentHash.slice(0, 12)}\n\n` +
-              excerpt,
-          );
-        } else {
+        if (settled.status === "rejected") {
           sections.push(
             `## [${i + 1}] ${src.title}\nSource: ${src.url}\n_Failed to read: ${String(settled.reason)}_`,
           );
+          return;
         }
+        const o = settled.value;
+        if (o.status !== "ok") {
+          const why =
+            o.status === "blocked"
+              ? o.reason
+              : `Payment required${o.priceHint ? ` (${o.priceHint})` : ""}; terms: ${o.terms ?? o.rslUrl}`;
+          sections.push(`## [${i + 1}] ${src.title}\nSource: ${src.url}\n_${why}. Content withheld._`);
+          return;
+        }
+        const { content, provenance } = o.result;
+        const excerpt =
+          content.length > 4000 ? content.slice(0, 4000) + "\n…[truncated]" : content;
+        sections.push(
+          `## [${i + 1}] ${provenance.title ?? src.title}\n` +
+            `Source: ${provenance.url}\n` +
+            `Published: ${provenance.publishedAt ?? "unknown"} | ` +
+            `Author: ${provenance.author ?? "unknown"} | ` +
+            `Fetched: ${provenance.fetchedAt} | ` +
+            `Hash: ${provenance.contentHash.slice(0, 12)}\n\n` +
+            excerpt,
+        );
       });
 
       return text(sections.join("\n\n---\n\n"));
@@ -210,12 +209,9 @@ export function buildServer(): McpServer {
         filed = f.filingDate;
         header = `## ${res.company.name} — ${f.form} (filed ${f.filingDate})\n`;
       }
-      const cacheKey = `read:${docUrl}`;
-      let read = await cache.get<ReadResult>(cacheKey);
-      if (!read) {
-        read = await readUrl(docUrl);
-        await cache.set(cacheKey, read, READ_TTL);
-      }
+      const gate = await gatedRead(docUrl, "finance_filing_read");
+      if (gate.status !== "ok") return text(renderWithheld(gate));
+      const read = gate.result;
       const MAX = 12000;
       const body =
         read.content.length > MAX
