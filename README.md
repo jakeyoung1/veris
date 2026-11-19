@@ -12,7 +12,7 @@ web_read("https://example.com/article")
   + { publishedAt, modifiedAt, author, canonicalUrl, contentHash, license, fetchedAt }
 ```
 
-That metadata is not a nice-to-have. It is the foundation the rest of the AI-web economy needs: freshness, change-detection, citation, and — eventually — paying the people who wrote the content.
+That metadata is not a nice-to-have. It is the foundation the rest of the AI-web economy needs: freshness, change-detection, citation, and, eventually, paying the people who wrote the content.
 
 ---
 
@@ -20,7 +20,7 @@ That metadata is not a nice-to-have. It is the foundation the rest of the AI-web
 
 The web is being scraped by AI with no attribution and no payment. Publishers are responding by blocking bots and locking content. AI gets worse; publishers lose. The fix is a layer between agents and publishers that reads cleanly, tracks provenance, and (later) settles payment.
 
-veris is the **agent-side** of that layer — the SDK every agent imports to consume the web responsibly. Think "Plaid for the AI web": you don't own the publishers, you own the integration developers reach for.
+veris is the **agent-side** of that layer: the SDK every agent imports to consume the web responsibly. Think "Plaid for the AI web": you don't own the publishers, you own the integration developers reach for.
 
 ## Roadmap (one codebase, three stages)
 
@@ -53,30 +53,30 @@ Every license field names its source (`robotsUrl` + `robotsRule`, `rslUrl`, `pri
 | `web_read(url, fresh?)` | URL → clean markdown + provenance block. 24h cache. |
 | `web_research(query, n?)` | Search + read top N + bundle with per-source citations. |
 
-**Finance — SEC EDGAR** (free, official, no API key)
+**Finance: SEC EDGAR** (free, official, no API key)
 
 | Tool | Does |
 |------|------|
 | `finance_filings(query, formType?, limit?)` | Ticker / name / CIK → recent SEC filings: form, official filing & report dates, accession, direct document URL. |
 | `finance_filing_read(url or query, formType?)` | Read a filing by URL, or auto-read the latest matching form for a company. Clean text + provenance. |
-| `finance_financials(query)` | Revenue, net income, total assets, cash, diluted EPS from SEC XBRL — each figure stamped with the exact filing it came from. |
+| `finance_financials(query)` | Revenue, net income, total assets, cash, diluted EPS from SEC XBRL, each figure stamped with the exact filing it came from. |
 
-> **Why EDGAR first?** Filings carry *authoritative* dates and identifiers straight from the SEC — provenance isn't guessed, it's official. Free, structured, no auth. One call gets an agent the latest 10-K with a verifiable source:
+> **Why EDGAR first?** Filings carry *authoritative* dates and identifiers straight from the SEC, so provenance isn't guessed, it's official. Free, structured, no auth. One call gets an agent the latest 10-K with a verifiable source:
 >
 > ```
 > finance_filing_read({ query: "NVDA", formType: "10-K" })
->   → NVIDIA CORP — 10-K (filed 2026-02-25)
+>   → NVIDIA CORP, 10-K (filed 2026-02-25)
 >     clean text + { source, filed date, contentHash, wordCount }
 > ```
 
-**Watch — change detection & alerts**
+**Watch: change detection & alerts**
 
 | Tool | Does |
 |------|------|
 | `watch_manage(action, target?, formType?)` | Add/remove/list watches: a company's SEC filings (ticker + optional form like `8-K`) or any URL (content-hash watch). |
 | `watch_check()` | Check all watches; returns only what's NEW (new filings / changed pages) and rolls baselines forward. Run it on a schedule → alert feed. |
 
-Filings watches default to **material forms only** — `8-K`, `10-K`, `10-Q`, `20-F`, `SC 13D/G`,
+Filings watches default to **material forms only**: `8-K`, `10-K`, `10-Q`, `20-F`, `SC 13D/G`,
 merger proxies, offerings, late-filing notices. Routine `Form 4` / `13F-HR` traffic is suppressed,
 because an alert feed nobody reads is worse than none. Pass `formType: "ALL"` to see everything,
 or a specific form to watch just that one.
@@ -95,7 +95,7 @@ veris-mcp mailtest                  # verify SMTP without sending
 ```
 
 Every summary carries verbatim quotes from the filing, and each quote is checked against the
-source text before sending — quotes that can't be matched are flagged in the email rather than
+source text before sending. Quotes that can't be matched are flagged in the email rather than
 presented as fact. Filings longer than the character budget are marked as partially read; they
 are never silently truncated.
 
@@ -135,7 +135,7 @@ export SEC_USER_AGENT="Your Name you@email.com"    # SEC fair-access policy (rec
 ```
 
 Without a Brave key, search falls back to keyless DuckDuckGo automatically. SEC requires a
-`Name email@domain` style User-Agent — veris ships a default, but set your own contact.
+`Name email@domain` style User-Agent. veris ships a default, but set your own contact.
 
 ## Use in Claude Code
 
@@ -180,12 +180,12 @@ docker build -t veris .
 docker run -p 8787:8787 veris
 ```
 
-Works as-is on Fly.io / Render / Railway — anything that runs a Dockerfile.
+Works as-is on Fly.io / Render / Railway, anything that runs a Dockerfile.
 
 ## Design notes
 
 - **Provenance from raw HTML.** We fetch the page ourselves and pull dates/author/canonical from `<meta>`, JSON-LD, and Open Graph *before* readability strips them.
-- **Content hash.** sha256 of extracted text — detects whether a page changed and enables dedupe across agents (the basis for a shared web index).
+- **Content hash.** sha256 of extracted text. Detects whether a page changed and enables dedupe across agents (the basis for a shared web index).
 - **Provider interface.** Swap search backends without touching tool code.
 - **Cache + ledger.** `cache.ts` keeps the keyed read cache and the append-only, hash-chained attribution ledger side by side.
 
